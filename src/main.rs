@@ -15,12 +15,13 @@ fn get_video_ids(s: &str) -> Vec<String> {
 
 fn play_selection(selection: &str) {
     println!("Playing: {}", selection);
-    let output = Command::new("mpv")
+    //let output =
+    Command::new("mpv")
         .arg(&selection.trim())
         .output()
         .expect("Failed to execute command. Ensure mpv is installed.");
 
-    println!("{}", String::from_utf8_lossy(&output.stdout));
+    // println!("{}", String::from_utf8_lossy(&output.stdout));
 }
 
 async fn get_video_title(video_id: &str) -> Result<String, Box<dyn Error>> {
@@ -76,9 +77,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         video_urls.push(video_data);
     }
 
-    let selection = Select::new().items(&titles).default(0).interact().unwrap();
-
-    let _ = play_selection(&video_urls[selection]);
-
-    Ok(())
+    loop {
+        let selection = Select::new().items(&titles).default(0).interact().unwrap();
+        let _ = play_selection(&video_urls[selection]);
+    }
 }
