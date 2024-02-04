@@ -10,7 +10,7 @@ use reqwest::{
     Client,
 };
 use scraper::{Html, Selector};
-use std::{error::Error, process::Command, thread};
+use std::{error::Error, ops::Not, process::Command, thread};
 
 lazy_static! {
     static ref RE: Regex = Regex::new(r"/watch\?v\\x3d([^\\]+)").unwrap();
@@ -60,17 +60,57 @@ async fn get_video_title(video_id: &str, client: &Client) -> Result<String, Box<
 async fn main() -> Result<(), Box<dyn Error>> {
     let matches = command!()
         .about("A cli to search and play youtube videos")
-        .version("1.0.0")
+        .version("1.1.0")
         .arg(
             Arg::new("search")
                 .short('s')
                 .long("search")
-                .help_heading(Some("Search for a video"))
-                .required(true),
+                .help_heading(Some("Search for a video")),
+        )
+        .arg(
+            Arg::new("url")
+                .short('u')
+                .long("url")
+                .help_heading("Play a video by url"),
         )
         .get_matches();
 
-    let search = matches.get_one::<String>("search").unwrap();
+    let url_is_not_empty = matches.get_one::<String>("url").is_some();
+    let search_is_empty = matches.get_one::<String>("search").is_some().not();
+
+    if url_is_not_empty && search_is_empty.not() {
+        println!(
+            "{}",
+            "Please provide either a search query or a video url, not both.".red()
+        );
+        return Ok(());
+    }
+
+    if url_is_not_empty {
+        let url = matches
+            .get_one::<String>("url")
+            .map(|s| s.to_string())
+            .unwrap();
+        play_selection(&url, "From URL");
+        return Ok(());
+    }
+
+    let search = matches
+        .get_one::<String>("search")
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            let search: String = dialoguer::Input::new()
+                .with_prompt("Search for a video".yellow().to_string())
+                .interact()
+                .unwrap();
+            search
+        });
+
+    if search.is_empty() {
+        println!("{}", "No search query provided".red());
+        return Ok(());
+    }
+
     println!("{} {}", "Searching for:".green().bold(), search.yellow());
     let user_agent =
         "Mozilla/5.0 (X11; U; Linux armv7l; en-US; rv:1.9.2a1pre) Gecko/20090322 Fennec/1.0b2pre";
