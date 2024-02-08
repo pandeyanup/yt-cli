@@ -1,60 +1,13 @@
 use clap::{command, Arg};
 use colored::*;
-use dashmap::DashMap;
 use dialoguer::Select;
 use futures::future::join_all;
-use lazy_static::lazy_static;
-use regex::Regex;
 use reqwest::{
     header::{HeaderValue, ACCEPT_LANGUAGE, USER_AGENT},
     Client,
 };
-use scraper::{Html, Selector};
-use std::{error::Error, ops::Not, process::Command, thread};
-
-lazy_static! {
-    static ref RE: Regex = Regex::new(r"/watch\?v\\x3d([^\\]+)").unwrap();
-    static ref CACHE: DashMap<String, String> = DashMap::new();
-}
-
-fn get_video_ids(s: &str) -> Vec<String> {
-    RE.captures_iter(s).map(|cap| cap[1].to_string()).collect()
-}
-
-fn play_selection(selection: &str, title: &str) {
-    // Clear the terminal
-    let _ = Command::new("clear").status();
-
-    let selection = selection.to_owned();
-    println!("{} {}", "Playing:".green().bold(), title.yellow());
-    thread::spawn(move || {
-        Command::new("mpv")
-            .arg(&selection.trim())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .expect("Failed to execute command. Ensure mpv is installed.");
-    });
-}
-
-async fn get_video_title(video_id: &str, client: &Client) -> Result<String, Box<dyn Error>> {
-    if let Some(title) = CACHE.get(video_id) {
-        return Ok(title.value().clone());
-    }
-
-    let url = format!("https://www.youtube.com/watch?v={}", video_id);
-    let resp = client.get(&url).send().await?;
-    let body = resp.text().await?;
-
-    let document = Html::parse_document(&body);
-    let selector = Selector::parse("title").unwrap();
-    let title = document.select(&selector).next().unwrap().inner_html();
-
-    // Remove " - YouTube" from the end of the title
-    let title = title.trim_end_matches(" - YouTube");
-    CACHE.insert(video_id.to_string(), title.to_string().clone());
-    Ok(title.to_string())
-}
+use std::{error::Error, ops::Not, process::Command};
+use yt_cli::ytsearch;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -73,8 +26,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .long("url")
                 .help_heading("Play a video by url"),
         )
+        .arg(
+            Arg::new("audio-only")
+                .short('a')
+                .long("audio")
+                .help_heading("Play audio only")
+                .required(false)
+                .num_args(0),
+        )
         .get_matches();
 
+    let audio_only = matches.get_one::<bool>("audio-only").unwrap();
+    println!("{}", audio_only);
     let url_is_not_empty = matches.get_one::<String>("url").is_some();
     let search_is_empty = matches.get_one::<String>("search").is_some().not();
 
@@ -91,7 +54,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .get_one::<String>("url")
             .map(|s| s.to_string())
             .unwrap();
-        play_selection(&url, "From URL");
+        ytsearch::play_selection(&url, "From URL", *audio_only);
         return Ok(());
     }
 
@@ -110,7 +73,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("{}", "No search query provided".red());
         return Ok(());
     }
-
+    let _ = Command::new("clear").status();
     println!("{} {}", "Searching for:".green().bold(), search.yellow());
     let user_agent =
         "Mozilla/5.0 (X11; U; Linux armv7l; en-US; rv:1.9.2a1pre) Gecko/20090322 Fennec/1.0b2pre";
@@ -125,13 +88,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
 
     let body = resp.text().await?;
-    let video_ids = get_video_ids(&body);
+    let video_ids = ytsearch::get_video_ids(&body);
     let mut video_urls = Vec::new();
     let mut titles = Vec::new();
 
     let futures = video_ids
         .iter()
-        .map(|video_id| get_video_title(&video_id, &client));
+        .map(|video_id| ytsearch::get_video_title(&video_id, &client));
     let results = join_all(futures).await;
 
     for (video_id, result) in video_ids.iter().zip(results) {
@@ -143,6 +106,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     loop {
         let selection = Select::new().items(&titles).default(0).interact().unwrap();
-        play_selection(&video_urls[selection], &titles[selection]);
+        ytsearch::play_selection(&video_urls[selection], &titles[selection], *audio_only);
     }
 }
