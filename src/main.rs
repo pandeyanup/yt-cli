@@ -37,7 +37,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .get_matches();
 
     let audio_only = matches.get_one::<bool>("audio-only").unwrap();
-    println!("{}", audio_only);
     let url_is_not_empty = matches.get_one::<String>("url").is_some();
     let search_is_empty = matches.get_one::<String>("search").is_some().not();
 
