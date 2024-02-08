@@ -49,8 +49,6 @@ pub mod ytsearch {
         } else {
             thread::spawn(move || {
                 Command::new("mpv")
-                    .arg("--no-video")
-                    .arg("--force-window")
                     .arg(&selection.trim())
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())
