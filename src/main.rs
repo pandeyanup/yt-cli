@@ -26,7 +26,7 @@ struct App {
 
 impl App {
     fn new() -> Self {
-        Self {
+        let mut app = Self {
             active_block: 1,
             search_input: String::new(),
             footer_text: String::new(),
@@ -35,7 +35,11 @@ impl App {
             selected_item: 0,
             video_state: ListState::default(),
             navigating_item: 0,
+        };
+        if !app.results.is_empty() {
+            app.video_state.select(Some(0));
         }
+        app
     }
 }
 
@@ -64,16 +68,16 @@ fn main() -> Result<()> {
             for (i, chunk) in chunks.iter().enumerate() {
                 let block = Block::default()
                     .borders(Borders::ALL)
-                    .border_type(BorderType::Rounded)
-                    .style(Style::default().fg(if i == app.active_block {
-                        Color::Yellow
-                    } else {
-                        Color::White
-                    }));
-
+                    .border_type(BorderType::Rounded);
                 match i {
                     0 => {
-                        let block = block.title("Search");
+                        let block = block.title("Search").style(Style::default().fg(
+                            if 0 == app.active_block {
+                                Color::LightGreen
+                            } else {
+                                Color::White
+                            },
+                        ));
                         let mut search_display = if app.active_block == 0 {
                             app.search_input.clone()
                         } else {
@@ -92,9 +96,14 @@ fn main() -> Result<()> {
                         frame.render_widget(paragraph, *chunk);
                     }
                     1 => {
-                        let block = block.title("Content");
-
                         if app.results.len() > 0 {
+                            let block = block
+                                .border_style(Style::default().fg(Color::Magenta))
+                                .title(format!(
+                                    "Videos [{}/{}]",
+                                    app.navigating_item + 1,
+                                    app.results.len()
+                                ));
                             let items: Vec<String> = app
                                 .results
                                 .iter()
@@ -104,14 +113,14 @@ fn main() -> Result<()> {
                                 })
                                 .collect::<Vec<String>>();
 
-                            let list = List::new(items)
-                                .block(block)
-                                .style(Style::default().fg(Color::Yellow))
-                                .highlight_style(
-                                    Style::default().bg(Color::Green).fg(Color::Black),
-                                );
+                            let list = List::new(items).block(block).highlight_style(
+                                Style::default().bg(Color::Green).fg(Color::Black),
+                            );
                             frame.render_stateful_widget(list, *chunk, &mut app.video_state);
                         } else {
+                            let block = block
+                                .border_style(Style::default().fg(Color::Magenta))
+                                .title("No Videos");
                             let paragraph = Paragraph::new("No results found")
                                 .block(block)
                                 .wrap(Wrap { trim: true });
@@ -119,7 +128,13 @@ fn main() -> Result<()> {
                         }
                     }
                     2 => {
-                        let block = block.title("Status");
+                        let block = block.title("Status").style(Style::default().fg(
+                            if 2 == app.active_block {
+                                Color::Magenta
+                            } else {
+                                Color::White
+                            },
+                        ));
                         let footer_text = if app.footer_text.is_empty() {
                             "Press / to search".to_string()
                         } else {
