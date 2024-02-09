@@ -27,6 +27,7 @@ pub mod backend {
     #[derive(Debug, Serialize, Deserialize)]
     pub struct Response {
         items: Vec<Video>,
+        nextpage: String,
     }
 
     pub struct OrangeResult {
@@ -66,18 +67,35 @@ pub mod backend {
             .await?;
 
         let body = resp.text().await?;
+        let mut level_search: Response = serde_json::from_str(&body)?;
 
-        let response: Response = serde_json::from_str(&body)?;
+        // run loop x times to get more results
+        for _ in 0..2 {
+            let resp = client
+                .get(SEARCH_URL)
+                .query(&[("q", search)])
+                .query(&[("filter", "all")])
+                .query(&[("nextpage", &level_search.nextpage)])
+                .header(USER_AGENT, HeaderValue::from_str(USR_AGENT).unwrap())
+                .header(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9"))
+                .send()
+                .await?;
+
+            let body = resp.text().await?;
+            let response: Response = serde_json::from_str(&body)?;
+            level_search.items.extend(response.items);
+        }
+
         let mut results: Vec<OrangeResult> = vec![];
 
-        if response.items.is_empty() {
+        if level_search.items.is_empty() {
             return Ok(Vec::new());
         }
 
         let mut videos: Vec<Video> = vec![];
 
         // push the videos to the videos vector if the title is "stream"
-        for video in response.items {
+        for video in level_search.items {
             if video.video_type.to_lowercase() == "stream" && video.is_short.is_none().not() {
                 videos.push(video);
             }

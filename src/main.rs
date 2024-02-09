@@ -6,8 +6,9 @@ use crossterm::{
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     prelude::{CrosstermBackend, Terminal},
-    style::{Color, Style},
-    widgets::{Block, BorderType, Borders, List, ListState, Paragraph, Wrap},
+    style::{Color, Style, Stylize},
+    text::{Line, Span},
+    widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
 use yt_cli::backend;
 
@@ -58,8 +59,8 @@ fn main() -> Result<()> {
                 .constraints(
                     [
                         Constraint::Percentage(8),
-                        Constraint::Percentage(82),
-                        Constraint::Percentage(10),
+                        Constraint::Percentage(84),
+                        Constraint::Percentage(8),
                     ]
                     .as_ref(),
                 )
@@ -104,17 +105,29 @@ fn main() -> Result<()> {
                                     app.navigating_item + 1,
                                     app.results.len()
                                 ));
-                            let items: Vec<String> = app
+                            let items: Vec<ListItem> = app
                                 .results
                                 .iter()
                                 .enumerate()
                                 .map(|(i, r)| {
-                                    format!("{}. {} ===>[󰔛 {}]", i + 1, r.title, r.duration)
+                                    let index = Span::styled(
+                                        format!("{}. ", i + 1),
+                                        Style::default().fg(Color::LightMagenta),
+                                    );
+                                    let title = Span::styled(
+                                        format!("{}", r.title),
+                                        Style::default().fg(Color::White).bold(),
+                                    );
+                                    let duration = Span::styled(
+                                        format!(" [󰔛 {}]", r.duration),
+                                        Style::default().fg(Color::Yellow),
+                                    );
+                                    ListItem::new(Line::from(vec![index, title, duration]))
                                 })
-                                .collect::<Vec<String>>();
+                                .collect::<Vec<ListItem>>();
 
                             let list = List::new(items).block(block).highlight_style(
-                                Style::default().bg(Color::Green).fg(Color::Black),
+                                Style::default().bg(Color::White).fg(Color::Black),
                             );
                             frame.render_stateful_widget(list, *chunk, &mut app.video_state);
                         } else {
@@ -136,11 +149,17 @@ fn main() -> Result<()> {
                             },
                         ));
                         let footer_text = if app.footer_text.is_empty() {
-                            "Press / to search".to_string()
+                            Span::styled(
+                                format!("Press / to search | Press q to quit"),
+                                Style::default().fg(Color::Red),
+                            )
                         } else {
-                            app.footer_text.clone()
+                            Span::styled(
+                                format!("{}", app.footer_text.clone()),
+                                Style::default().fg(Color::Green),
+                            )
                         };
-                        let paragraph = Paragraph::new(footer_text.as_ref() as &str)
+                        let paragraph = Paragraph::new(footer_text)
                             .block(block)
                             .wrap(Wrap { trim: true });
                         frame.render_widget(paragraph, *chunk);
@@ -203,7 +222,7 @@ fn main() -> Result<()> {
                             let selection = app.results[app.selected_item].url.clone();
                             let title = app.results[app.selected_item].title.clone();
                             backend::play_selection(&selection, &title);
-                            app.footer_text = format!("Playing: {} [{}]", title, selection);
+                            app.footer_text = format!("Playing: {}", title);
                         }
                         _ => {}
                     },
