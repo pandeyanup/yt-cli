@@ -1,180 +1,214 @@
-use clap::{command, Arg};
-use colored::*;
-use dialoguer::Select;
-use reqwest::{
-    header::{HeaderValue, ACCEPT_LANGUAGE, USER_AGENT},
-    Client,
+use crossterm::{
+    event::{self, Event, KeyCode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    ExecutableCommand,
 };
-use serde::{Deserialize, Serialize};
-use std::{error::Error, ops::Not, process::Command};
+use ratatui::{
+    layout::{Constraint, Direction, Layout},
+    prelude::{CrosstermBackend, Terminal},
+    style::{Color, Style},
+    widgets::{Block, BorderType, Borders, List, ListState, Paragraph, Wrap},
+};
+use yt_cli::backend;
 
-const SEARCH_URL: &str = "https://pipedapi.kavin.rocks/search";
-const YT_URL: &str = "https://www.youtube.com";
+use std::io::{stdout, Result};
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Video {
-    url: String,
-    #[serde(rename = "type")]
-    video_type: String,
-    title: Option<String>,
-    duration: Option<i32>,
-    video_duration: Option<String>,
-    #[serde(rename = "isShort")]
-    is_short: Option<bool>,
+struct App {
+    active_block: usize,
+    search_input: String,
+    footer_text: String,
+    search_cursor_position: usize,
+    results: Vec<backend::OrangeResult>,
+    selected_item: usize,
+    video_state: ListState,
+    navigating_item: usize,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Response {
-    items: Vec<Video>,
+impl App {
+    fn new() -> Self {
+        Self {
+            active_block: 1,
+            search_input: String::new(),
+            footer_text: String::new(),
+            search_cursor_position: 0,
+            results: backend::get_trending().unwrap(),
+            selected_item: 0,
+            video_state: ListState::default(),
+            navigating_item: 0,
+        }
+    }
 }
 
-use yt_cli::search;
+fn main() -> Result<()> {
+    stdout().execute(EnterAlternateScreen)?;
+    enable_raw_mode()?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
+    terminal.clear()?;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let matches = command!()
-        .about("A cli to search and play videos from piped API")
-        .version("1.0.0")
-        .arg(
-            Arg::new("search")
-                .short('s')
-                .long("search")
-                .help_heading(Some("Search for a video")),
-        )
-        .arg(
-            Arg::new("url")
-                .short('u')
-                .long("url")
-                .help_heading("Play a video by url"),
-        )
-        .arg(
-            Arg::new("audio-only")
-                .short('a')
-                .long("audio")
-                .help_heading("Play audio only")
-                .required(false)
-                .num_args(0),
-        )
-        .get_matches();
-
-    let audio_only = matches.get_one::<bool>("audio-only").unwrap();
-    let url_is_not_empty = matches.get_one::<String>("url").is_some();
-    let search_is_empty = matches.get_one::<String>("search").is_some().not();
-
-    if url_is_not_empty && search_is_empty.not() {
-        println!(
-            "{}",
-            "Please provide either a search query or a video url, not both.".red()
-        );
-        return Ok(());
-    }
-
-    if url_is_not_empty {
-        let url = matches
-            .get_one::<String>("url")
-            .map(|s| s.to_string())
-            .unwrap();
-        search::play_selection(&url, "From URL", *audio_only);
-        return Ok(());
-    }
-
-    let search = matches
-        .get_one::<String>("search")
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            let search: String = dialoguer::Input::new()
-                .with_prompt("Search for a video".yellow().to_string())
-                .interact()
-                .unwrap();
-            search
-        });
-
-    if search.is_empty() {
-        println!("{}", "No search query provided".red());
-        return Ok(());
-    }
-    let _ = Command::new("clear").status();
-    println!("{} {}", "Searching for:".green().bold(), search.yellow());
-    let user_agent =
-        "Mozilla/5.0 (X11; U; Linux armv7l; en-US; rv:1.9.2a1pre) Gecko/20090322 Fennec/1.0b2pre";
-
-    let client = Client::new();
-    let search_value: &str = &search;
-    let search_url = format!("{}?q={}&filter=all", SEARCH_URL, search_value);
-
-    let resp = client
-        .get(search_url)
-        .header(USER_AGENT, HeaderValue::from_str(user_agent).unwrap())
-        .header(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9"))
-        .send()
-        .await?;
-
-    let body = resp.text().await?;
-
-    // searliaze the response
-    let response: Response = serde_json::from_str(&body)?;
-
-    if response.items.is_empty() {
-        println!("{}", "No results found".red());
-        return Ok(());
-    }
-
-    let mut videos: Vec<Video> = vec![];
-
-    // push the videos to the videos vector if the title is "stream"
-    for video in response.items {
-        if video.video_type.to_lowercase() == "stream" && video.is_short.is_none().not() {
-            videos.push(video);
-        }
-    }
-
-    if videos.is_empty() {
-        println!("{}", "No results found".red());
-        return Ok(());
-    }
-
-    let mut video_titles_display: Vec<String> = vec![];
-    let mut video_urls: Vec<String> = vec![];
-    let mut video_titles: Vec<String> = vec![];
-
-    let duration = |d: i32| -> String {
-        let minutes = d / 60;
-        let seconds = d % 60;
-        // if seconds and minutes is less than 10, add a leading zero
-        if seconds < 10 && minutes > 10 {
-            return format!("{}:0{}", minutes, seconds);
-        }
-        if seconds > 10 && minutes < 10 {
-            return format!("0{}:{}", minutes, seconds);
-        }
-        format!("{}:{}", minutes, seconds)
-    };
-
-    for (i, video) in videos.iter().enumerate() {
-        let title = video.title.as_ref().unwrap().to_string().replace("//", "");
-        let watch_id = video.url.to_string();
-        let video_url = format!("{}{}", YT_URL, watch_id);
-        let vid_duration = duration(video.duration.unwrap());
-        video_urls.push(video_url);
-        video_titles_display.push(format!(
-            "{}. {} [󰔛 {}]",
-            (i + 1).to_string().red(),
-            title.clone(),
-            vid_duration.clone().yellow()
-        ));
-        video_titles.push(title);
-    }
+    let mut app = App::new();
 
     loop {
-        let selection = Select::new()
-            .items(&video_titles_display)
-            .default(0)
-            .interact()
-            .unwrap();
-        search::play_selection(
-            &video_urls[selection],
-            &video_titles[selection],
-            *audio_only,
-        );
+        terminal.draw(|frame| {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(
+                    [
+                        Constraint::Percentage(8),
+                        Constraint::Percentage(82),
+                        Constraint::Percentage(10),
+                    ]
+                    .as_ref(),
+                )
+                .split(frame.size());
+
+            for (i, chunk) in chunks.iter().enumerate() {
+                let block = Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .style(Style::default().fg(if i == app.active_block {
+                        Color::Yellow
+                    } else {
+                        Color::White
+                    }));
+
+                match i {
+                    0 => {
+                        let block = block.title("Search");
+                        let mut search_display = if app.active_block == 0 {
+                            app.search_input.clone()
+                        } else {
+                            "What do you want to search?".to_string()
+                        };
+                        if app.active_block == 0
+                            && app.search_cursor_position <= search_display.len()
+                            && search_display.is_char_boundary(app.search_cursor_position)
+                        {
+                            search_display.insert(app.search_cursor_position, '|');
+                        }
+                        let paragraph = Paragraph::new(search_display.as_ref() as &str)
+                            .block(block)
+                            .wrap(Wrap { trim: true });
+
+                        frame.render_widget(paragraph, *chunk);
+                    }
+                    1 => {
+                        let block = block.title("Content");
+
+                        if app.results.len() > 0 {
+                            let items: Vec<String> = app
+                                .results
+                                .iter()
+                                .enumerate()
+                                .map(|(i, r)| {
+                                    format!("{}. {} ===>[󰔛 {}]", i + 1, r.title, r.duration)
+                                })
+                                .collect::<Vec<String>>();
+
+                            let list = List::new(items)
+                                .block(block)
+                                .style(Style::default().fg(Color::Yellow))
+                                .highlight_style(
+                                    Style::default().bg(Color::Green).fg(Color::Black),
+                                );
+                            frame.render_stateful_widget(list, *chunk, &mut app.video_state);
+                        } else {
+                            let paragraph = Paragraph::new("No results found")
+                                .block(block)
+                                .wrap(Wrap { trim: true });
+                            frame.render_widget(paragraph, *chunk);
+                        }
+                    }
+                    2 => {
+                        let block = block.title("Status");
+                        let footer_text = if app.footer_text.is_empty() {
+                            "Press / to search".to_string()
+                        } else {
+                            app.footer_text.clone()
+                        };
+                        let paragraph = Paragraph::new(footer_text.as_ref() as &str)
+                            .block(block)
+                            .wrap(Wrap { trim: true });
+                        frame.render_widget(paragraph, *chunk);
+                    }
+                    _ => {}
+                };
+            }
+        })?;
+
+        if event::poll(std::time::Duration::from_millis(16))? {
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char('/') => {
+                        app.active_block = 0;
+                        app.search_cursor_position = app.search_input.len();
+                    }
+                    KeyCode::Char(c) if app.active_block == 0 => {
+                        app.search_input.insert(app.search_cursor_position, c);
+                        app.search_cursor_position += 1;
+                    }
+                    KeyCode::Backspace
+                        if app.active_block == 0 && app.search_cursor_position > 0 =>
+                    {
+                        app.search_input.remove(app.search_cursor_position - 1);
+                        app.search_cursor_position -= 1;
+                    }
+                    KeyCode::Left if app.active_block == 0 && app.search_cursor_position > 0 => {
+                        app.search_cursor_position -= 1;
+                    }
+                    KeyCode::Right
+                        if app.active_block == 0
+                            && app.search_cursor_position < app.search_input.len() =>
+                    {
+                        app.search_cursor_position += 1;
+                    }
+                    KeyCode::Up if app.active_block == 1 => {
+                        if app.results.len() > 0 && app.navigating_item > 0 {
+                            app.video_state.select(Some(app.navigating_item - 1));
+                            app.navigating_item -= 1;
+                        }
+                    }
+                    KeyCode::Down if app.active_block == 1 => {
+                        if app.results.len() > 0 && app.navigating_item < app.results.len() - 1 {
+                            app.video_state.select(Some(app.navigating_item + 1));
+                            app.navigating_item += 1;
+                        }
+                    }
+                    KeyCode::Enter => match app.active_block {
+                        0 => {
+                            app.results = backend::get_search(&app.search_input).unwrap();
+                            app.active_block = 1;
+                            app.selected_item = 0;
+                            app.navigating_item = 0;
+                            app.video_state.select(Some(0));
+                            app.footer_text = format!("Search results for: {}", app.search_input);
+                            app.search_input.clear();
+                        }
+                        1 => {
+                            app.selected_item = app.video_state.selected().unwrap();
+                            let selection = app.results[app.selected_item].url.clone();
+                            let title = app.results[app.selected_item].title.clone();
+                            backend::play_selection(&selection, &title);
+                            app.footer_text = format!("Playing: {} [{}]", title, selection);
+                        }
+                        _ => {}
+                    },
+                    KeyCode::Tab => {
+                        app.active_block = (app.active_block + 1) % 3;
+                        if app.active_block == 1 {
+                            app.selected_item = 0;
+                            app.video_state.select(Some(0));
+                        }
+                    }
+                    KeyCode::Char('q') => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
     }
+
+    stdout().execute(LeaveAlternateScreen)?;
+    disable_raw_mode()?;
+    Ok(())
 }

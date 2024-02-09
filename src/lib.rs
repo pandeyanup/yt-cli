@@ -1,46 +1,174 @@
-pub mod search {
-    use colored::*;
-    use std::{process::Command, thread};
+pub mod backend {
+    use reqwest::{
+        header::{HeaderValue, ACCEPT_LANGUAGE, USER_AGENT},
+        Client,
+    };
+    use serde::{Deserialize, Serialize};
+    use std::{error::Error, ops::Not, process::Command, thread};
 
-    pub fn play_selection(selection: &str, title: &str, audio_only: bool) {
-        // Clear the terminal
-        let _ = Command::new("clear").status();
+    const TRENDING: &str = "https://pipedapi.kavin.rocks/trending?region=US";
+    const USR_AGENT: &str =
+        "Mozilla/5.0 (X11; U; Linux armv7l; en-US; rv:1.9.2a1pre) Gecko/20090322 Fennec/1.0b2pre";
+    const YT_URL: &str = "https://www.youtube.com";
+    const SEARCH_URL: &str = "https://pipedapi.kavin.rocks/search";
 
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct Video {
+        url: String,
+        #[serde(rename = "type")]
+        video_type: String,
+        title: Option<String>,
+        duration: Option<i32>,
+        video_duration: Option<String>,
+        #[serde(rename = "isShort")]
+        is_short: Option<bool>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct Response {
+        items: Vec<Video>,
+    }
+
+    pub struct OrangeResult {
+        pub title: String,
+        pub url: String,
+        pub duration: String,
+    }
+
+    #[allow(dead_code)]
+    pub fn play_selection(selection: &str, title: &str) {
         let selection = selection.to_owned();
-        println!("{} {}", "Playing:".green().bold(), title.yellow());
-        if audio_only {
-            let mut child = Command::new("mpv")
-                .arg("--no-video")
-                // .arg("--force-window")
+        let _ = title.to_owned();
+        thread::spawn(move || {
+            Command::new("mpv")
                 .arg(&selection.trim())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .spawn()
                 .expect("Failed to execute command. Ensure mpv is installed.");
+        });
+    }
 
-            let child_id = child.id();
+    #[tokio::main]
+    pub async fn get_search(search: &str) -> Result<Vec<OrangeResult>, Box<dyn Error>> {
+        if search.is_empty() {
+            return Ok(Vec::new());
+        }
+        let client = Client::new();
 
-            ctrlc::set_handler(move || {
-                let _ = Command::new("kill")
-                    .arg("-2")
-                    .arg(child_id.to_string())
-                    .spawn();
-                // then exit the program
-                std::process::exit(0);
-            })
-            .expect("Error setting Ctrl-C handler");
+        let resp = client
+            .get(SEARCH_URL)
+            .query(&[("q", search)])
+            .query(&[("filter", "all")])
+            .header(USER_AGENT, HeaderValue::from_str(USR_AGENT).unwrap())
+            .header(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9"))
+            .send()
+            .await?;
 
-            // Wait for the child process to finish
-            let _ = child.wait().expect("Failed to wait on child");
-        } else {
-            thread::spawn(move || {
-                Command::new("mpv")
-                    .arg(&selection.trim())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn()
-                    .expect("Failed to execute command. Ensure mpv is installed.")
+        let body = resp.text().await?;
+
+        let response: Response = serde_json::from_str(&body)?;
+        let mut results: Vec<OrangeResult> = vec![];
+
+        if response.items.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut videos: Vec<Video> = vec![];
+
+        // push the videos to the videos vector if the title is "stream"
+        for video in response.items {
+            if video.video_type.to_lowercase() == "stream" && video.is_short.is_none().not() {
+                videos.push(video);
+            }
+        }
+
+        if videos.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let duration = |d: i32| -> String {
+            let minutes = d / 60;
+            let seconds = d % 60;
+            if seconds < 10 && minutes > 10 {
+                return format!("{}:0{}", minutes, seconds);
+            }
+            if seconds > 10 && minutes < 10 {
+                return format!("0{}:{}", minutes, seconds);
+            }
+            format!("{}:{}", minutes, seconds)
+        };
+
+        for video in videos {
+            let title = video.title.as_ref().unwrap().to_string().replace("//", "");
+            let watch_id = video.url.to_string();
+            let video_url = format!("{}{}", YT_URL, watch_id);
+            let vid_duration = duration(video.duration.unwrap());
+            results.push(OrangeResult {
+                title,
+                url: video_url,
+                duration: vid_duration,
             });
         }
+
+        Ok(results)
+    }
+
+    #[tokio::main]
+    pub async fn get_trending() -> Result<Vec<OrangeResult>, Box<dyn Error>> {
+        let client = Client::new();
+        let resp = client
+            .get(TRENDING)
+            .header(USER_AGENT, HeaderValue::from_str(USR_AGENT).unwrap())
+            .header(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9"))
+            .send()
+            .await?;
+
+        let body = resp.text().await?;
+
+        let response: Vec<Video> = serde_json::from_str(&body)?;
+        let mut results: Vec<OrangeResult> = vec![];
+
+        if response.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut videos: Vec<Video> = vec![];
+
+        for video in response {
+            if video.video_type.to_lowercase() == "stream" && video.is_short.is_none().not() {
+                videos.push(video);
+            }
+        }
+
+        if videos.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let duration = |d: i32| -> String {
+            let minutes = d / 60;
+            let seconds = d % 60;
+            if seconds < 10 && minutes > 10 {
+                return format!("{}:0{}", minutes, seconds);
+            }
+            if seconds > 10 && minutes < 10 {
+                return format!("0{}:{}", minutes, seconds);
+            }
+            format!("{}:{}", minutes, seconds)
+        };
+
+        for video in videos {
+            let title = video.title.as_ref().unwrap().to_string().replace("//", "");
+            let watch_id = video.url.to_string();
+            let video_url = format!("{}{}", YT_URL, watch_id);
+            let vid_duration = duration(video.duration.unwrap());
+            results.push(OrangeResult {
+                title,
+                url: video_url,
+                duration: vid_duration,
+            });
+        }
+
+        Ok(results)
     }
 }
