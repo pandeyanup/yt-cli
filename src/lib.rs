@@ -1,20 +1,6 @@
-pub mod ytsearch {
+pub mod search {
     use colored::*;
-    use dashmap::DashMap;
-    use lazy_static::lazy_static;
-    use regex::Regex;
-    use reqwest::Client;
-    use scraper::{Html, Selector};
-    use std::{error::Error, process::Command, thread};
-
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"/watch\?v\\x3d([^\\]+)").unwrap();
-        static ref CACHE: DashMap<String, String> = DashMap::new();
-    }
-
-    pub fn get_video_ids(s: &str) -> Vec<String> {
-        RE.captures_iter(s).map(|cap| cap[1].to_string()).collect()
-    }
+    use std::{process::Command, thread};
 
     pub fn play_selection(selection: &str, title: &str, audio_only: bool) {
         // Clear the terminal
@@ -56,27 +42,5 @@ pub mod ytsearch {
                     .expect("Failed to execute command. Ensure mpv is installed.")
             });
         }
-    }
-
-    pub async fn get_video_title(
-        video_id: &str,
-        client: &Client,
-    ) -> Result<String, Box<dyn Error>> {
-        if let Some(title) = CACHE.get(video_id) {
-            return Ok(title.value().clone());
-        }
-
-        let url = format!("https://www.youtube.com/watch?v={}", video_id);
-        let resp = client.get(&url).send().await?;
-        let body = resp.text().await?;
-
-        let document = Html::parse_document(&body);
-        let selector = Selector::parse("title").unwrap();
-        let title = document.select(&selector).next().unwrap().inner_html();
-
-        // Remove " - YouTube" from the end of the title
-        let title = title.trim_end_matches(" - YouTube");
-        CACHE.insert(video_id.to_string(), title.to_string().clone());
-        Ok(title.to_string())
     }
 }
