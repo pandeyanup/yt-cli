@@ -42,10 +42,8 @@ pub mod backend {
         pub is_verified: bool,
     }
 
-    #[allow(dead_code)]
-    pub fn play_selection(selection: &str, title: &str) {
+    pub fn play_selection(selection: &str) {
         let selection = selection.to_owned();
-        let _ = title.to_owned();
         thread::spawn(move || {
             Command::new("mpv")
                 .arg(&selection.trim())
@@ -54,6 +52,16 @@ pub mod backend {
                 .spawn()
                 .expect("Failed to execute command. Ensure mpv is installed.");
         });
+    }
+
+    pub fn play_url(url: &str) {
+        let url = url.to_owned();
+        Command::new("mpv")
+            .arg(&url.trim())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("Failed to execute command. Ensure mpv is installed.");
     }
 
     #[tokio::main]

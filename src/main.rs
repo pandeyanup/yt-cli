@@ -1,3 +1,4 @@
+use clap::{command, Arg};
 use crossterm::{
     event::{self, Event, KeyCode},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -10,9 +11,11 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
+use std::{
+    io::{stdout, Result},
+    ops::Not,
+};
 use yt_cli::backend;
-
-use std::io::{stdout, Result};
 
 struct App {
     active_block: usize,
@@ -45,13 +48,52 @@ impl App {
 }
 
 fn main() -> Result<()> {
+    let matches = command!()
+        .about("A cli to search and play videos from piped API")
+        .version("1.0.0")
+        .arg(
+            Arg::new("search")
+                .short('s')
+                .long("search")
+                .help_heading(Some("Search for a video")),
+        )
+        .arg(
+            Arg::new("url")
+                .short('u')
+                .long("url")
+                .help_heading("Play a video by url"),
+        )
+        .get_matches();
+
+    let url_is_not_empty = matches.get_one::<String>("url").is_some();
+    let search_is_empty = matches.get_one::<String>("search").is_some().not();
+
+    let mut app = App::new();
+
+    if url_is_not_empty && search_is_empty.not() {
+        println!("Please provide either a search query or a video url, not both.");
+        return Ok(());
+    }
+
+    if url_is_not_empty {
+        let url = matches.get_one::<String>("url").unwrap();
+        println!("Playing from: {}", url);
+        backend::play_url(&url);
+        return Ok(());
+    }
+
+    if !search_is_empty {
+        let search = matches
+            .get_one::<String>("search")
+            .map(|s| s.to_string())
+            .unwrap();
+        app.results = backend::get_search(&search).unwrap();
+    }
+
     stdout().execute(EnterAlternateScreen)?;
     enable_raw_mode()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
     terminal.clear()?;
-
-    let mut app = App::new();
-
     loop {
         terminal.draw(|frame| {
             let chunks = Layout::default()
@@ -237,7 +279,7 @@ fn main() -> Result<()> {
                             app.selected_item = app.video_state.selected().unwrap();
                             let selection = app.results[app.selected_item].url.clone();
                             let title = app.results[app.selected_item].title.clone();
-                            backend::play_selection(&selection, &title);
+                            backend::play_selection(&selection);
                             app.footer_text = format!("Playing: {}", title);
                         }
                         _ => {}
@@ -257,7 +299,6 @@ fn main() -> Result<()> {
             }
         }
     }
-
     stdout().execute(LeaveAlternateScreen)?;
     disable_raw_mode()?;
     Ok(())
