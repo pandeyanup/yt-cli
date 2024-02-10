@@ -112,17 +112,33 @@ fn main() -> Result<()> {
                                 .map(|(i, r)| {
                                     let index = Span::styled(
                                         format!("{}. ", i + 1),
-                                        Style::default().fg(Color::LightMagenta),
+                                        Style::default().fg(Color::Rgb(198, 160, 246)),
                                     );
                                     let title = Span::styled(
                                         format!("{}", r.title),
                                         Style::default().fg(Color::White).bold(),
                                     );
+                                    let verified = Span::styled(
+                                        format!(" [ "),
+                                        Style::default()
+                                            .fg(if r.is_verified {
+                                                Color::Rgb(166, 218, 149)
+                                            } else {
+                                                Color::Rgb(237, 135, 150)
+                                            })
+                                            .bold(),
+                                    );
+                                    let uploader = Span::styled(
+                                        format!("{}]", r.uploader),
+                                        Style::default().fg(Color::Rgb(245, 169, 127)).bold(),
+                                    );
                                     let duration = Span::styled(
                                         format!(" [󰔛 {}]", r.duration),
-                                        Style::default().fg(Color::Yellow),
+                                        Style::default().fg(Color::Rgb(240, 198, 198)),
                                     );
-                                    ListItem::new(Line::from(vec![index, title, duration]))
+                                    ListItem::new(Line::from(vec![
+                                        index, title, duration, verified, uploader,
+                                    ]))
                                 })
                                 .collect::<Vec<ListItem>>();
 

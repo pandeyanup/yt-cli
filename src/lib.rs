@@ -19,9 +19,13 @@ pub mod backend {
         video_type: String,
         title: Option<String>,
         duration: Option<i32>,
+        #[serde(rename = "uploaderName")]
+        uploader_name: Option<String>,
         video_duration: Option<String>,
         #[serde(rename = "isShort")]
         is_short: Option<bool>,
+        #[serde(rename = "uploaderVerified")]
+        uploader_verified: Option<bool>,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -34,6 +38,8 @@ pub mod backend {
         pub title: String,
         pub url: String,
         pub duration: String,
+        pub uploader: String,
+        pub is_verified: bool,
     }
 
     #[allow(dead_code)]
@@ -122,10 +128,14 @@ pub mod backend {
             let watch_id = video.url.to_string();
             let video_url = format!("{}{}", YT_URL, watch_id);
             let vid_duration = duration(video.duration.unwrap());
+            let uploader = video.uploader_name.unwrap().to_string();
+            let is_verified = video.uploader_verified.unwrap();
             results.push(OrangeResult {
                 title,
                 url: video_url,
                 duration: vid_duration,
+                uploader,
+                is_verified,
             });
         }
 
@@ -180,10 +190,14 @@ pub mod backend {
             let watch_id = video.url.to_string();
             let video_url = format!("{}{}", YT_URL, watch_id);
             let vid_duration = duration(video.duration.unwrap());
+            let is_verified = video.uploader_verified.unwrap();
+            let uploader = video.uploader_name.unwrap().to_string();
             results.push(OrangeResult {
                 title,
                 url: video_url,
                 duration: vid_duration,
+                uploader,
+                is_verified,
             });
         }
 
