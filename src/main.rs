@@ -50,7 +50,7 @@ impl App {
 fn main() -> Result<()> {
     let matches = command!()
         .about("A cli to search and play videos from piped API")
-        .version("1.0.0")
+        .version("1.6.0")
         .arg(
             Arg::new("search")
                 .short('s')
